@@ -1,5 +1,8 @@
 import math
 import pyautogui
+from Helpers.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class NoseCursorController:
@@ -11,6 +14,10 @@ class NoseCursorController:
         self.smooth_x = screen_w // 2
         self.smooth_y = screen_h // 2
         self.load_settings(config)
+        logger.info(
+            f"NoseCursorController initialized (screen={screen_w}x{screen_h}, "
+            f"deadzone={self.DEADZONE_PX}px, smoothing=[{self.MIN_SMOOTHING}, {self.MAX_SMOOTHING}])"
+        )
 
     def load_settings(self, config):
         """Loads or hot-reloads cursor kinematics and calibration bounds from config."""
@@ -24,17 +31,31 @@ class NoseCursorController:
         self.MAX_SMOOTHING = c_cfg["max_smoothing"]
         self.SPEED_THRESHOLD = c_cfg["speed_threshold"]
 
-        self.cal_min_x = cal_cfg["min_x"]
-        self.cal_max_x = cal_cfg["max_x"]
-        self.cal_min_y = cal_cfg["min_y"]
-        self.cal_max_y = cal_cfg["max_y"]
-
+        self.set_calibration_bounds(
+            cal_cfg["min_x"],
+            cal_cfg["max_x"],
+            cal_cfg["min_y"],
+            cal_cfg["max_y"],
+        )
+        logger.debug(
+            f"Cursor settings loaded -> range=[{self.min_range}, {self.max_range}], "
+            f"deadzone={self.DEADZONE_PX}, speed_threshold={self.SPEED_THRESHOLD}"
+        )
 
     def set_calibration_bounds(self, min_x, max_x, min_y, max_y):
+        if (max_x - min_x) < 0.01 or (max_y - min_y) < 0.01:
+            logger.warning(
+                f"Narrow calibration span detected -> X: [{min_x:.4f}, {max_x:.4f}], "
+                f"Y: [{min_y:.4f}, {max_y:.4f}]. Clamping span to 0.01 to avoid division by zero."
+            )
+
         self.cal_min_x = min_x
         self.cal_max_x = max_x
         self.cal_min_y = min_y
         self.cal_max_y = max_y
+        logger.debug(
+            f"Active cursor calibration bounds updated -> X: [{min_x:.4f}, {max_x:.4f}], Y: [{min_y:.4f}, {max_y:.4f}]"
+        )
 
     @property
     def current_pos(self):
@@ -66,4 +87,8 @@ class NoseCursorController:
 
             self.smooth_x += (target_x - self.smooth_x) / dynamic_smoothing
             self.smooth_y += (target_y - self.smooth_y) / dynamic_smoothing
-            pyautogui.moveTo(int(self.smooth_x), int(self.smooth_y))
+
+            try:
+                pyautogui.moveTo(int(self.smooth_x), int(self.smooth_y))
+            except Exception as e:
+                logger.error(f"PyAutoGUI moveTo failed at ({int(self.smooth_x)}, {int(self.smooth_y)}): {e}")

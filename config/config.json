@@ -21,13 +21,20 @@
   },
   "calibration": {
     "is_calibrated": true,
-    "min_x": -0.12205,
-    "max_x": 0.17714,
-    "min_y": -0.06351,
-    "max_y": -0.00333
+    "min_x": -0.16513,
+    "max_x": 0.25796,
+    "min_y": -0.07039,
+    "max_y": 0.00804
   },
   "app": {
     "camera_index": 0,
     "show_debug_on_start": true
+  },
+  "logging": {
+    "level": "INFO",
+    "log_to_file": true,
+    "log_to_console": true,
+    "backup_count": 14,
+    "_doc_logging": "Niveles v\u00e1lidos: DEBUG, INFO, WARNING, ERROR. Genera 1 archivo .log por d\u00eda."
   }
 }

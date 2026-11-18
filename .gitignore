@@ -1,3 +1,26 @@
-./__pycache__
-./Helpers/__pycache__
-face_landmark.task
+# Python bytecode & cache
+__pycache__/
+Helpers/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Daily application logs
+logs/
+*.log
+
+# MediaPipe binary model (auto-downloaded by Helpers/model_loader.py)
+face_landmarker.task
+*.task
+
+# Virtual environments (Conda / venv)
+venv/
+.venv/
+env/
+ENV/
+
+# IDE & OS metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

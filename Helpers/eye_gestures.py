@@ -1,5 +1,8 @@
 import time
 import pyautogui
+from Helpers.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class EyeGestureController:
@@ -8,6 +11,7 @@ class EyeGestureController:
     def __init__(self, config):
         self.load_settings(config)
         self.reset()
+        logger.info("EyeGestureController initialized.")
 
     def load_settings(self, config):
         """Loads or hot-reloads eye blendshape thresholds and timing windows from config."""
@@ -26,6 +30,12 @@ class EyeGestureController:
         self.MAX_WINK_DURATION = g_cfg["max_wink_duration"]
         self.DOUBLE_WINK_WINDOW = g_cfg["double_wink_window"]
         self.MULTI_BLINK_TIMEOUT = g_cfg["multi_blink_timeout"]
+
+        logger.debug(
+            f"Gesture settings loaded -> anchor_close={self.ANCHOR_CLOSE_SCORE}, "
+            f"wink_close={self.WINK_CLOSE_SCORE}, asymmetry={self.ASYMMETRY_MARGIN}, "
+            f"hold_delay={self.ANCHOR_HOLD_DELAY}s"
+        )
 
     def reset(self):
         """Resets all gesture states (e.g., right after calibration)."""
@@ -46,6 +56,7 @@ class EyeGestureController:
         self.last_click_label = ""
         self.last_click_time = 0.0
         self.ignore_until = time.time() + 0.50
+        logger.debug("Eye gesture states reset (0.50s cooldown active).")
 
     def update(self, blink_l, blink_r, current_cursor_pos):
         """
@@ -67,11 +78,11 @@ class EyeGestureController:
             right_is_anchor = (blink_r >= self.ANCHOR_CLOSE_SCORE) and ((blink_r - blink_l) >= self.ASYMMETRY_MARGIN)
 
             if left_is_anchor:
-                self.both_eyes_closed = False  # Prioriza el anclaje si hay asimetría clara
+                self.both_eyes_closed = False
                 if self.left_closed_since is None:
                     self.left_closed_since = now
                 elif now - self.left_closed_since >= self.ANCHOR_HOLD_DELAY:
-                    self._lock_anchor('LEFT', current_cursor_pos)
+                    self._lock_anchor('LEFT', current_cursor_pos, blink_l, blink_r)
             else:
                 self.left_closed_since = None
 
@@ -80,29 +91,36 @@ class EyeGestureController:
                 if self.right_closed_since is None:
                     self.right_closed_since = now
                 elif now - self.right_closed_since >= self.ANCHOR_HOLD_DELAY:
-                    self._lock_anchor('RIGHT', current_cursor_pos)
+                    self._lock_anchor('RIGHT', current_cursor_pos, blink_l, blink_r)
             else:
                 self.right_closed_since = None
 
-        # Soltar el anclaje cuando el ojo ancla vuelve a abrirse
+        # Release anchor when the anchor eye opens back up
         if self.anchor_mode == 'LEFT' and blink_l < self.ANCHOR_RELEASE_SCORE:
-            self._release_anchor()
+            self._release_anchor(blink_l, blink_r)
         elif self.anchor_mode == 'RIGHT' and blink_r < self.ANCHOR_RELEASE_SCORE:
-            self._release_anchor()
+            self._release_anchor(blink_l, blink_r)
 
-    def _lock_anchor(self, side, cursor_pos):
+    def _lock_anchor(self, side, cursor_pos, blink_l, blink_r):
         self.anchor_mode = side
         self.locked_pos = cursor_pos
         self.wink_active = False
         self.wink_timestamps.clear()
         self.both_blink_count = 0
+        logger.info(
+            f"Anchor locked: {side} at {cursor_pos} (blink_l={blink_l:.2f}, blink_r={blink_r:.2f})"
+        )
 
-    def _release_anchor(self):
+    def _release_anchor(self, blink_l, blink_r):
+        prev_side = self.anchor_mode
         self.anchor_mode = None
         self.left_closed_since = None
         self.right_closed_since = None
         self.wink_active = False
         self.wink_timestamps.clear()
+        logger.info(
+            f"Anchor released: {prev_side} (blink_l={blink_l:.2f}, blink_r={blink_r:.2f})"
+        )
 
     def _update_anchored_winks(self, blink_l, blink_r, current_cursor_pos, now):
         """2. ANCHORED DOUBLE-WINK CLICKS"""
@@ -121,24 +139,36 @@ class EyeGestureController:
             if self.MIN_WINK_DURATION <= dur <= self.MAX_WINK_DURATION:
                 self.wink_timestamps.append(now)
                 self.wink_timestamps = [t for t in self.wink_timestamps if now - t <= self.DOUBLE_WINK_WINDOW]
+                logger.debug(
+                    f"Valid {click_button} wink detected (duration={dur:.3f}s) [{len(self.wink_timestamps)}/2]"
+                )
 
                 if len(self.wink_timestamps) >= 2:
                     lx, ly = self.locked_pos if self.locked_pos else fallback_pos
-                    if click_button == 'RIGHT':
-                        pyautogui.rightClick(lx, ly)
-                        self.last_click_label = "RIGHT CLICK!"
-                    else:
-                        pyautogui.leftClick(lx, ly)
-                        self.last_click_label = "LEFT CLICK!"
+                    try:
+                        if click_button == 'RIGHT':
+                            pyautogui.rightClick(lx, ly)
+                            self.last_click_label = "RIGHT CLICK!"
+                        else:
+                            pyautogui.leftClick(lx, ly)
+                            self.last_click_label = "LEFT CLICK!"
+                        logger.info(f"Action triggered: {self.last_click_label} at ({lx}, {ly})")
+                    except Exception as e:
+                        logger.error(f"PyAutoGUI {click_button} click failed at ({lx}, {ly}): {e}")
+
                     self.last_click_time = now
                     self.wink_timestamps.clear()
+            else:
+                logger.warning(
+                    f"Discarded {click_button} wink (duration={dur:.3f}s outside "
+                    f"[{self.MIN_WINK_DURATION}s, {self.MAX_WINK_DURATION}s])"
+                )
 
     def _update_bilateral_blinks(self, blink_l, blink_r, now):
         """3. BILATERAL BLINKS (3x = Calibrate, 5x = Exit)"""
         if self.anchor_mode is not None:
             return None
 
-        # Solo cuenta como parpadeo bilateral si AMBOS ojos están muy cerrados y parejos
         is_symmetric = abs(blink_l - blink_r) < self.ASYMMETRY_MARGIN
         both_shut = (blink_l >= self.BOTH_BLINK_SCORE) and (blink_r >= self.BOTH_BLINK_SCORE) and is_symmetric
         both_open = (blink_l < self.ANCHOR_RELEASE_SCORE) and (blink_r < self.ANCHOR_RELEASE_SCORE)
@@ -148,17 +178,23 @@ class EyeGestureController:
             self.both_close_start = now
         elif both_open and self.both_eyes_closed:
             self.both_eyes_closed = False
-            if self.MIN_WINK_DURATION <= (now - self.both_close_start) <= self.MAX_WINK_DURATION:
+            dur = now - self.both_close_start
+            if self.MIN_WINK_DURATION <= dur <= self.MAX_WINK_DURATION:
                 self.both_blink_count += 1
                 self.last_both_blink_time = now
+                logger.debug(f"Bilateral blink counted: {self.both_blink_count} (duration={dur:.3f}s)")
 
         if self.both_blink_count > 0 and not self.both_eyes_closed and (now - self.last_both_blink_time > self.MULTI_BLINK_TIMEOUT):
             count = self.both_blink_count
             self.both_blink_count = 0
             if count >= 5:
+                logger.info(f"Bilateral blink command triggered: EXIT ({count} blinks)")
                 return 'EXIT'
             elif count == 3:
+                logger.info(f"Bilateral blink command triggered: CALIBRATE ({count} blinks)")
                 return 'CALIBRATE'
+            else:
+                logger.debug(f"Ignored natural bilateral blink sequence ({count} blinks)")
 
         return None
 
