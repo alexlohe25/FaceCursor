@@ -5,6 +5,7 @@ import pyautogui
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
+from config.config_loader import load_config, save_calibration_bounds
 from Helpers.model_loader import get_face_landmarker_model
 from Helpers.calibration import run_calibration, get_nose_position, get_blink_scores, draw_debug_landmarks
 from Helpers.eye_gestures import EyeGestureController
@@ -12,6 +13,9 @@ from Helpers.cursor_controller import NoseCursorController
 
 pyautogui.FAILSAFE = False
 screen_w, screen_h = pyautogui.size()
+
+# Load JSON configuration
+config = load_config()
 
 # Initialize MediaPipe FaceLandmarker with Blendshapes enabled
 model_path = get_face_landmarker_model()
@@ -22,19 +26,22 @@ options = vision.FaceLandmarkerOptions(
     num_faces=1
 )
 detector = vision.FaceLandmarker.create_from_options(options)
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(config["app"]["camera_index"])
 
-# Initialize modular controllers
-cursor = NoseCursorController(screen_w, screen_h)
-gestures = EyeGestureController()
-show_debug = True
+# Initialize modular controllers from config.json
+cursor = NoseCursorController(screen_w, screen_h, config)
+gestures = EyeGestureController(config)
+show_debug = config["app"]["show_debug_on_start"]
 
 
 def calibrate_system():
-    bounds = run_calibration(cap, detector, screen_w, screen_h, cursor.min_range, cursor.max_range)
-    cursor.set_calibration_bounds(*bounds)
+    min_x, max_x, min_y, max_y = run_calibration(
+        cap, detector, screen_w, screen_h, cursor.min_range, cursor.max_range
+    )
+    cursor.set_calibration_bounds(min_x, max_x, min_y, max_y)
+    save_calibration_bounds(min_x, max_x, min_y, max_y)
     gestures.reset()
-    print(f"Calibrated -> X: [{bounds[0]:.3f}, {bounds[1]:.3f}], Y: [{bounds[2]:.3f}, {bounds[3]:.3f}]")
+    print(f"Calibrated & saved -> X: [{min_x:.3f}, {max_x:.3f}], Y: [{min_y:.3f}, {max_y:.3f}]")
 
 
 def draw_hud(frame, blink_l, blink_r):
@@ -56,9 +63,32 @@ def draw_hud(frame, blink_l, blink_r):
         cv2.putText(frame, gestures.last_click_label,
                     (20, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
 
+    if time.time() < reload_banner_until:
+        cv2.putText(frame, "CONFIG RELOADED!", (20, 185),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 0), 2)
 
-# Initial calibration
-calibrate_system()
+
+reload_banner_until = 0.0
+
+def reload_config():
+    """Reloads config.json live without restarting the webcam."""
+    global config, reload_banner_until
+    try:
+        config = load_config()
+        cursor.load_settings(config)
+        gestures.load_settings(config)
+        reload_banner_until = time.time() + 1.5
+        print("Hot-reloaded settings from config.json!")
+    except Exception as e:
+        print(f"Failed to reload config.json (check JSON syntax): {e}")
+
+
+# Run calibration only if no saved calibration exists yet (press 'c' or blink 3x anytime to recalibrate)
+if not config["calibration"]["is_calibrated"]:
+    calibrate_system()
+else:
+    print(f"Loaded saved calibration -> X: [{cursor.cal_min_x:.3f}, {cursor.cal_max_x:.3f}], "
+          f"Y: [{cursor.cal_min_y:.3f}, {cursor.cal_max_y:.3f}]")
 
 # --- MAIN LOOP ---
 while cap.isOpened():
@@ -83,7 +113,6 @@ while cap.isOpened():
         nose_pos = get_nose_position(first_face)
         blink_l, blink_r = get_blink_scores(first_blendshapes)
 
-        # 1, 2 & 3: Process anchor mode, wink clicks, and bilateral blink commands
         command = gestures.update(blink_l, blink_r, cursor.current_pos)
         if command == 'EXIT':
             print("5 bilateral blinks detected -> Stopping program.")
@@ -93,20 +122,22 @@ while cap.isOpened():
             calibrate_system()
             continue
 
-        # 4: Move cursor if unanchored and eyes open
         if gestures.can_move_cursor(blink_l, blink_r):
             cursor.move(nose_pos)
 
         draw_hud(frame, blink_l, blink_r)
 
-    cv2.imshow('Nose & Eye Mouse Tracker', frame)
+    cv2.imshow('FaceCursor', frame)
     key = cv2.waitKey(1) & 0xFF
     if key == ord('d'):
         show_debug = not show_debug
     elif key == ord('c'):
         calibrate_system()
-    elif key == 27 or cv2.getWindowProperty('Nose & Eye Mouse Tracker', cv2.WND_PROP_VISIBLE) < 1:
+    elif key == ord('r'):
+        reload_config()
+    elif key == 27 or cv2.getWindowProperty('FaceCursor', cv2.WND_PROP_VISIBLE) < 1:
         break
+
 
 cap.release()
 cv2.destroyAllWindows()

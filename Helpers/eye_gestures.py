@@ -5,22 +5,27 @@ import pyautogui
 class EyeGestureController:
     """Manages eye-based anchor locking, double-wink clicks, and bilateral blink commands."""
 
-    def __init__(self):
+    def __init__(self, config):
+        self.load_settings(config)
+        self.reset()
+
+    def load_settings(self, config):
+        """Loads or hot-reloads eye blendshape thresholds and timing windows from config."""
+        g_cfg = config["gestures"]
+
         # Blendshape thresholds (0.0 = open, 1.0 = closed)
-        self.ANCHOR_CLOSE_SCORE = 0.55
-        self.ANCHOR_RELEASE_SCORE = 0.35
-        self.WINK_CLOSE_SCORE = 0.45
-        self.ASYMMETRY_MARGIN = 0.25
-        self.BOTH_BLINK_SCORE = 0.55
+        self.ANCHOR_CLOSE_SCORE = g_cfg["anchor_close_score"]
+        self.ANCHOR_RELEASE_SCORE = g_cfg["anchor_release_score"]
+        self.WINK_CLOSE_SCORE = g_cfg["wink_close_score"]
+        self.ASYMMETRY_MARGIN = g_cfg["asymmetry_margin"]
+        self.BOTH_BLINK_SCORE = g_cfg["both_blink_score"]
 
         # Timing parameters (seconds)
-        self.ANCHOR_HOLD_DELAY = 0.20
-        self.MIN_WINK_DURATION = 0.05
-        self.MAX_WINK_DURATION = 0.65
-        self.DOUBLE_WINK_WINDOW = 1.10
-        self.MULTI_BLINK_TIMEOUT = 0.70
-
-        self.reset()
+        self.ANCHOR_HOLD_DELAY = g_cfg["anchor_hold_delay"]
+        self.MIN_WINK_DURATION = g_cfg["min_wink_duration"]
+        self.MAX_WINK_DURATION = g_cfg["max_wink_duration"]
+        self.DOUBLE_WINK_WINDOW = g_cfg["double_wink_window"]
+        self.MULTI_BLINK_TIMEOUT = g_cfg["multi_blink_timeout"]
 
     def reset(self):
         """Resets all gesture states (e.g., right after calibration)."""
@@ -57,11 +62,12 @@ class EyeGestureController:
 
     def _update_anchor_mode(self, blink_l, blink_r, current_cursor_pos, now):
         """1. ANCHOR MODE MANAGEMENT"""
-        if self.anchor_mode is None and not self.both_eyes_closed:
+        if self.anchor_mode is None:
             left_is_anchor = (blink_l >= self.ANCHOR_CLOSE_SCORE) and ((blink_l - blink_r) >= self.ASYMMETRY_MARGIN)
             right_is_anchor = (blink_r >= self.ANCHOR_CLOSE_SCORE) and ((blink_r - blink_l) >= self.ASYMMETRY_MARGIN)
 
             if left_is_anchor:
+                self.both_eyes_closed = False  # Prioriza el anclaje si hay asimetría clara
                 if self.left_closed_since is None:
                     self.left_closed_since = now
                 elif now - self.left_closed_since >= self.ANCHOR_HOLD_DELAY:
@@ -70,6 +76,7 @@ class EyeGestureController:
                 self.left_closed_since = None
 
             if right_is_anchor and self.anchor_mode is None:
+                self.both_eyes_closed = False
                 if self.right_closed_since is None:
                     self.right_closed_since = now
                 elif now - self.right_closed_since >= self.ANCHOR_HOLD_DELAY:
@@ -77,7 +84,7 @@ class EyeGestureController:
             else:
                 self.right_closed_since = None
 
-        # Release anchor when the anchor eye opens back up
+        # Soltar el anclaje cuando el ojo ancla vuelve a abrirse
         if self.anchor_mode == 'LEFT' and blink_l < self.ANCHOR_RELEASE_SCORE:
             self._release_anchor()
         elif self.anchor_mode == 'RIGHT' and blink_r < self.ANCHOR_RELEASE_SCORE:
@@ -131,7 +138,9 @@ class EyeGestureController:
         if self.anchor_mode is not None:
             return None
 
-        both_shut = (blink_l >= self.BOTH_BLINK_SCORE) and (blink_r >= self.BOTH_BLINK_SCORE)
+        # Solo cuenta como parpadeo bilateral si AMBOS ojos están muy cerrados y parejos
+        is_symmetric = abs(blink_l - blink_r) < self.ASYMMETRY_MARGIN
+        both_shut = (blink_l >= self.BOTH_BLINK_SCORE) and (blink_r >= self.BOTH_BLINK_SCORE) and is_symmetric
         both_open = (blink_l < self.ANCHOR_RELEASE_SCORE) and (blink_r < self.ANCHOR_RELEASE_SCORE)
 
         if both_shut and not self.both_eyes_closed:

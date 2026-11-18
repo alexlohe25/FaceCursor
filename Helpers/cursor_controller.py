@@ -5,26 +5,30 @@ import pyautogui
 class NoseCursorController:
     """Translates calibrated nose coordinates into smoothed screen cursor movements."""
 
-    def __init__(self, screen_w, screen_h, min_range=0, max_range=1):
+    def __init__(self, screen_w, screen_h, config):
         self.screen_w = screen_w
         self.screen_h = screen_h
-        self.min_range = min_range
-        self.max_range = max_range
-
         self.smooth_x = screen_w // 2
         self.smooth_y = screen_h // 2
+        self.load_settings(config)
 
-        # Precision & stability parameters
-        self.DEADZONE_PX = 4.0
-        self.MIN_SMOOTHING = 2.0
-        self.MAX_SMOOTHING = 8.0
-        self.SPEED_THRESHOLD = 100.0
+    def load_settings(self, config):
+        """Loads or hot-reloads cursor kinematics and calibration bounds from config."""
+        c_cfg = config["cursor"]
+        cal_cfg = config["calibration"]
 
-        # Default calibration bounds
-        self.cal_min_x = -0.12
-        self.cal_max_x = 0.12
-        self.cal_min_y = -0.05
-        self.cal_max_y = 0.15
+        self.min_range = c_cfg["min_range"]
+        self.max_range = c_cfg["max_range"]
+        self.DEADZONE_PX = c_cfg["deadzone_px"]
+        self.MIN_SMOOTHING = c_cfg["min_smoothing"]
+        self.MAX_SMOOTHING = c_cfg["max_smoothing"]
+        self.SPEED_THRESHOLD = c_cfg["speed_threshold"]
+
+        self.cal_min_x = cal_cfg["min_x"]
+        self.cal_max_x = cal_cfg["max_x"]
+        self.cal_min_y = cal_cfg["min_y"]
+        self.cal_max_y = cal_cfg["max_y"]
+
 
     def set_calibration_bounds(self, min_x, max_x, min_y, max_y):
         self.cal_min_x = min_x
@@ -37,7 +41,7 @@ class NoseCursorController:
         return int(self.smooth_x), int(self.smooth_y)
 
     def move(self, nose_pos):
-        """4. NOSE POINTER CURSOR MOVEMENT"""
+        """Moves the OS cursor using calibrated bounds, deadzone, and adaptive smoothing."""
         if not nose_pos:
             return
 
