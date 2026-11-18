@@ -1,0 +1,33 @@
+{
+  "cursor": {
+    "min_range": 0,
+    "max_range": 1,
+    "deadzone_px": 4.0,
+    "min_smoothing": 2.0,
+    "max_smoothing": 8.0,
+    "speed_threshold": 100.0
+  },
+  "gestures": {
+    "anchor_close_score": 0.42,
+    "anchor_release_score": 0.25,
+    "wink_close_score": 0.3,
+    "asymmetry_margin": 0.15,
+    "both_blink_score": 0.65,
+    "anchor_hold_delay": 0.12,
+    "min_wink_duration": 0.04,
+    "max_wink_duration": 0.75,
+    "double_wink_window": 1.4,
+    "multi_blink_timeout": 0.7
+  },
+  "calibration": {
+    "is_calibrated": true,
+    "min_x": -0.12205,
+    "max_x": 0.17714,
+    "min_y": -0.06351,
+    "max_y": -0.00333
+  },
+  "app": {
+    "camera_index": 0,
+    "show_debug_on_start": true
+  }
+}
